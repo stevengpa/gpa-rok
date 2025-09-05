@@ -13,6 +13,8 @@ use std::collections::HashMap;
 use serde::Serialize;
 use futures_util::{SinkExt, StreamExt};
 use warp::Filter;
+use warp::filters::BoxedFilter;
+use warp::Reply;
 use std::fs;
 use std::net::{IpAddr, SocketAddr};
 use warp::http::{HeaderMap, Method};
@@ -42,16 +44,32 @@ async fn main() {
     let tx_ws = tx.clone();
 
     // WebSocket Server
+    let config_for_ws = config.clone();
     let ws_server = tokio::spawn(async move {
-        info!("WS server starting");
-        server(&config.ws_server.host, config.ws_server.port.to_string().as_str(), &tx_ws).await;
+        server(config_for_ws.ws_server.host.as_str(), config_for_ws.ws_server.port.to_string().as_str(), &tx_ws).await;
     });
 
-    let ip: IpAddr = config.http_server.host.as_str().parse().expect("Invalid IP address");
-    let port: u16 = config.http_server.port;
-    let addr = SocketAddr::new(ip, port);
+    // Http Server
+    let tx_http = tx.clone();
+    let http_server = {
+        let send_route = http_send_route(tx_http);
+
+        let ip: IpAddr = config.http_server.host.as_str().parse().expect("Invalid IP address");
+        let port: u16 = config.http_server.port;
+        let addr = SocketAddr::new(ip, port);
+
+        info!("Http server starting at ........ http://{}:{}/send", &config.http_server.host, config.http_server.port);
+        warp::serve(send_route.await).run(addr)
+    };
+
+    let _ = tokio::join!(ws_server, http_server);
+}
+
+async fn http_send_route(tx: broadcast::Sender<String>) -> BoxedFilter<(impl Reply,)> {
+    let tx_clone = tx.clone();
+
     // HTTP Server
-    let send_route = warp::any()
+    warp::any()
         .and(warp::path("send"))
         .and(warp::query::<HashMap<String, String>>())
         .and(warp::method())
@@ -60,7 +78,7 @@ async fn main() {
         .and(warp::body::bytes())
         .map(move |query: HashMap<String, String>, method: Method, path: FullPath, headers: HeaderMap, body: bytes::Bytes| {
             let method_str = method.to_string();
-            let path_str = path.as_str().to_string();
+            let path_str = path.as_str().to_owned();
 
             let headers_vec: Vec<(String, String)> = headers
                 .iter()
@@ -77,24 +95,17 @@ async fn main() {
 
             if let Ok(json) = serde_json::to_string(&payload) {
                 info!("Broadcasting request metadata to client");
-                let tx_clone = tx.clone();
                 let _ = tx_clone.send(json);
             }
 
             warp::reply::json(&serde_json::json!({ "status": "broadcasted" }))
-        });
-
-    let http_server = {
-        info!("Http server starting");
-        warp::serve(send_route).run(addr)
-    };
-
-    let _ = tokio::join!(ws_server, http_server);
+        })
+        .boxed()
 }
 
 async fn server(host: &str, port: &str, tx: &broadcast::Sender<String>) {
     let address = format!("{}:{}", host, port);
-    info!("Starting server {}", &address);
+    info!("Websocket server starting at ... ws://{}/socket", &address);
 
     let server = TcpListener::bind(address).await.unwrap();
 

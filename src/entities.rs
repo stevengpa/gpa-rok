@@ -41,5 +41,5 @@ pub struct WsConfig {
 pub struct HttpConfig {
     pub ws_server: ServerWS,
     pub target: String,
-    pub strip_headers: String,
+    pub strip_headers: Vec<String>,
 }

@@ -1,6 +1,6 @@
 {
     "ws_server": {
-        "port": 8699,
+        "port": 9999,
         "host": "127.0.0.1"
     },
     "target": "http://localhost:6666",

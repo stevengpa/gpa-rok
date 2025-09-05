@@ -24,7 +24,7 @@ fn client(host: &str, port: &str) {
         debug!("* {}: {:?}", header, _value);
     }
 
-    socket.send(Message::Text("Hello Websocket".into())).unwrap();
+    socket.send(Message::Text("New Websocket Joined!".into())).unwrap();
     loop {
         let msg = socket.read().expect("Error reading message from socket");
         info!("Received Message: {:?}", msg);
@@ -33,8 +33,6 @@ fn client(host: &str, port: &str) {
 
 #[tokio::main]
 async fn main () {
-    env_logger::init();
-
     env_logger::init();
 
     let config_path = "client_config.json".to_owned();
