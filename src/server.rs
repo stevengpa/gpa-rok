@@ -1,3 +1,6 @@
+// RUST_LOG=debug cargo run --bin gpa-rok-server
+// podman-compose -f composer.server.yml down
+// podman-compose -f composer.server.yml up --build
 use env_logger;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::broadcast;
@@ -10,7 +13,7 @@ use tokio_tungstenite::{
 };
 use log::{info, debug};
 use std::collections::HashMap;
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 use futures_util::{SinkExt, StreamExt};
 use warp::Filter;
 use warp::filters::BoxedFilter;
@@ -20,10 +23,15 @@ use std::net::{IpAddr, SocketAddr};
 use warp::http::{HeaderMap, Method};
 use warp::path::FullPath;
 
-mod entities;
-use crate::entities::WsConfig;
+mod config_domain;
+mod server_domain;
+mod client_domain;
 
-#[derive(Serialize)]
+use crate::config_domain::WsConfig;
+use crate::server_domain::{ServerMessageCategory, ServerMessage};
+use crate::client_domain::{ClientMessageCategory, ClientMessage};
+
+#[derive(Serialize, Deserialize, Debug)]
 struct HttpRequest {
     method: String,
     path: String,
@@ -40,7 +48,7 @@ async fn main() {
     let config_info = fs::read_to_string(&config_path).expect("Failed to read config file");
     let config: WsConfig = serde_json::from_str(&config_info).expect("Failed to parse config file");
 
-    let (tx, _) = broadcast::channel::<String>(100);
+    let (tx, _) = broadcast::channel::<ServerMessage>(100);
     let tx_ws = tx.clone();
 
     // WebSocket Server
@@ -65,7 +73,7 @@ async fn main() {
     let _ = tokio::join!(ws_server, http_server);
 }
 
-async fn http_send_route(tx: broadcast::Sender<String>) -> BoxedFilter<(impl Reply,)> {
+async fn http_send_route(tx: broadcast::Sender<ServerMessage>) -> BoxedFilter<(impl Reply,)> {
     let tx_clone = tx.clone();
 
     // HTTP Server
@@ -94,8 +102,11 @@ async fn http_send_route(tx: broadcast::Sender<String>) -> BoxedFilter<(impl Rep
             };
 
             if let Ok(json) = serde_json::to_string(&payload) {
-                info!("Broadcasting request metadata to client");
-                let _ = tx_clone.send(json);
+                let payload_str = serde_json::to_string(&payload).unwrap();
+                let message_for_client = ServerMessage::new(&payload_str, ServerMessageCategory::ForwardHttpRequest);
+
+                info!("Broadcasting request metadata to clients");
+                let _ = tx_clone.send(message_for_client);
             }
 
             warp::reply::json(&serde_json::json!({ "status": "broadcasted" }))
@@ -103,7 +114,7 @@ async fn http_send_route(tx: broadcast::Sender<String>) -> BoxedFilter<(impl Rep
         .boxed()
 }
 
-async fn server(host: &str, port: &str, tx: &broadcast::Sender<String>) {
+async fn server(host: &str, port: &str, tx: &broadcast::Sender<ServerMessage>) {
     let address = format!("{}:{}", host, port);
     info!("Websocket server starting at ... ws://{}/socket", &address);
 
@@ -117,7 +128,7 @@ async fn server(host: &str, port: &str, tx: &broadcast::Sender<String>) {
     }
 }
 
-async fn accept_connection(stream: TcpStream, tx: broadcast::Sender<String>) {
+async fn accept_connection(stream: TcpStream, tx: broadcast::Sender<ServerMessage>) {
     let mut rx = tx.subscribe();
 
     let callback = |req: &Request, response: Response| {
@@ -133,9 +144,12 @@ async fn accept_connection(stream: TcpStream, tx: broadcast::Sender<String>) {
     let (mut ws_sender, mut ws_receiver) = ws_stream.split();
 
     // Forward broadcast messages to this client
+    // TX Receiver
     let forward_task = tokio::spawn(async move {
         while let Ok(msg) = rx.recv().await {
-            if ws_sender.send(Message::Text(msg.to_string().into())).await.is_err() {
+            let message_for_clients = serde_json::to_string(&msg).unwrap();
+
+            if ws_sender.send(message_for_clients.into()).await.is_err() {
                 break; // client disconnected
             }
         }
@@ -144,8 +158,22 @@ async fn accept_connection(stream: TcpStream, tx: broadcast::Sender<String>) {
     // Handle messages from client
     while let Some(Ok(msg)) = ws_receiver.next().await {
         if msg.is_text() || msg.is_binary() {
-            debug!("Received from client: {:?}", &msg);
-            let _ = tx.send(msg.to_string()); // broadcast to others
+            if let Message::Text(message) = msg.clone() {
+                let client_message: ClientMessage = serde_json::from_str::<ClientMessage>(&message).unwrap();
+
+                match client_message.category {
+                    ClientMessageCategory::ClientForwardedResult => {
+                        info!("{}", &client_message.message);
+                    }
+                    ClientMessageCategory::ClientConnected => {
+                        info!("{}", &client_message.message);
+
+                        let message_for_client = ServerMessage::new("New client joined", ServerMessageCategory::AnnounceClientConnected);
+                        let _ = tx.send(message_for_client);
+                    }
+                }
+
+            }
         }
     }
 
