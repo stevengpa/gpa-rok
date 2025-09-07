@@ -31,8 +31,15 @@ pub struct HttpHeader {
 }
 
 #[derive(Deserialize, Debug, Clone)]
+pub struct ServerWSForHttp {
+    pub host: String,
+    pub port: u16,
+    pub listen_tails: Vec<String>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
 pub struct HttpConfig {
-    pub ws_server: ServerWS,
+    pub ws_server: ServerWSForHttp,
     pub target: String,
     pub forward_host: ForwardHost,
     pub headers: Vec<HttpHeader>,

@@ -38,6 +38,7 @@ struct HttpRequest {
     headers: Vec<(String, String)>,
     query: HashMap<String, String>,
     body: String,
+    tail: String
 }
 
 #[tokio::main]
@@ -66,7 +67,7 @@ async fn main() {
         let port: u16 = config.http_server.port;
         let addr = SocketAddr::new(ip, port);
 
-        info!("Http server starting at ........ http://{}:{}/send", &config.http_server.host, config.http_server.port);
+        info!("Http server starting at ........ http://{}:{}", &config.http_server.host, config.http_server.port);
         warp::serve(send_route.await).run(addr)
     };
 
@@ -78,13 +79,13 @@ async fn http_send_route(tx: broadcast::Sender<ServerMessage>) -> BoxedFilter<(i
 
     // HTTP Server
     warp::any()
-        .and(warp::path("send"))
+        .and(warp::path::tail())
         .and(warp::query::<HashMap<String, String>>())
         .and(warp::method())
         .and(warp::path::full())
         .and(warp::header::headers_cloned())
         .and(warp::body::bytes())
-        .map(move |query: HashMap<String, String>, method: Method, path: FullPath, headers: HeaderMap, body: bytes::Bytes| {
+        .map(move |tail: warp::filters::path::Tail, query: HashMap<String, String>, method: Method, path: FullPath, headers: HeaderMap, body: bytes::Bytes| {
             let method_str = method.to_string();
             let path_str = path.as_str().to_owned();
 
@@ -95,13 +96,14 @@ async fn http_send_route(tx: broadcast::Sender<ServerMessage>) -> BoxedFilter<(i
 
             let payload = HttpRequest {
                 method: method_str,
+                tail: tail.as_str().to_string(),
                 path: path_str,
                 query,
                 headers: headers_vec,
                 body: String::from_utf8(body.to_vec()).unwrap_or_default(),
             };
 
-            if let Ok(json) = serde_json::to_string(&payload) {
+            if let Ok(_) = serde_json::to_string(&payload) {
                 let payload_str = serde_json::to_string(&payload).unwrap();
                 let message_for_client = ServerMessage::new(&payload_str, ServerMessageCategory::ForwardHttpRequest);
 
@@ -155,7 +157,7 @@ async fn accept_connection(stream: TcpStream, tx: broadcast::Sender<ServerMessag
         }
     });
 
-    // Handle messages from client
+    // Handle messages from a client
     while let Some(Ok(msg)) = ws_receiver.next().await {
         if msg.is_text() || msg.is_binary() {
             if let Message::Text(message) = msg.clone() {

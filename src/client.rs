@@ -25,6 +25,7 @@ struct HttpRequestReply {
     headers: Vec<(String, String)>,
     query: HashMap<String, String>,
     body: String,
+    tail: String,
 }
 
 #[tokio::main]
@@ -77,6 +78,19 @@ async fn client(client_config: HttpConfig) {
                             let write_clone = write_for_task.clone();
                             let client_http_config = config_clone.clone();
 
+                            // Skip forward request if tail is not in listen tails
+                            let req_tail = req.tail.clone();
+                            let listen_tails = config_clone.ws_server.listen_tails.clone();
+
+                            let has_empty_tails = listen_tails.is_empty();
+                            let has_tail_filters = !listen_tails.contains(&"*".to_string()) && listen_tails.len() > 0;
+                            let is_listed_coming_tail = listen_tails.contains(&req_tail);
+
+                            if  has_empty_tails || (has_tail_filters && !is_listed_coming_tail) {
+                                debug!("Request tail '{}' is not in the listening tails list. Forward request was skipped!", req_tail);
+                                continue;
+                            }
+
                             tokio::spawn(async move {
                                 match forward_request(client_http_config, req).await {
                                     Ok(result) => {
@@ -119,7 +133,7 @@ async fn forward_request(config: HttpConfig, req: HttpRequestReply) -> Result<St
     let headers: Vec<(String, String)> = req
         .headers
         .into_iter()
-        .filter(|(k, v)| !strip.contains(&k.to_lowercase()))
+        .filter(|(k, _)| !strip.contains(&k.to_lowercase()))
         .collect();
 
     // Create request builder
@@ -132,7 +146,7 @@ async fn forward_request(config: HttpConfig, req: HttpRequestReply) -> Result<St
 
     // Add config headers
     for header in config.headers {
-        if (!&header.name.is_empty() && !&header.value.is_empty()) {
+        if !&header.name.is_empty() && !&header.value.is_empty() {
             builder = builder.header(&header.name, &header.value);
         }
     }
