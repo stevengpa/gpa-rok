@@ -7,7 +7,7 @@ use crate::client_domain::{ClientMessageCategory, ClientMessage};
 use crate::server_domain::{ServerMessageCategory, ServerMessage};
 
 use std::collections::{HashMap, HashSet};
-use log::{debug, info, error};
+use log::{debug, info, error, log};
 use env_logger;
 use std::fs;
 use std::sync::Arc;
@@ -161,11 +161,28 @@ async fn forward_request(config: HttpConfig, req: HttpRequestReply) -> Result<St
     }
 
     // Send request
-    let response = builder.send().await;
-    let status = response?.status();
+    let response = builder.send().await?;
+    let status = response.status();
+    let body_text = response.text().await.unwrap_or_else(|e| format!("<failed to read body: {}>", e));
+    
+    info!(
+        "\n=============== Response ===============\n\
+        {}\
+        \n=============== /Response ==============\n\
+        ", prettify_body(body_text)
+    );
 
     let result = format!("Forwarded request to {} {} - Status: {}", req.method.to_string(), url, status);
     info!("{}", result.as_str());
 
     Ok(result)
+}
+
+fn prettify_body(body_text: String) -> String {
+    let pretty_body = match serde_json::from_str::<serde_json::Value>(&body_text) {
+        Ok(json) => serde_json::to_string_pretty(&json).unwrap_or(body_text.clone()),
+        Err(_) => body_text.clone(),
+    };
+
+    pretty_body
 }

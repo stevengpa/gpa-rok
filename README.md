@@ -1,6 +1,6 @@
 # gpa-rok
 
-![gpa-rok logo](https://github.com/stevengpa/gpa-rok/blob/main/public/gpa-rok-with-label.png)
+![gpa-rok logo](public/gpa-rok-with-label.png)
 
 gpa-rok is a lightweight HTTP request forwarder built on a WebSocket pub/sub model. It runs a server that accepts inbound HTTP requests and broadcasts their metadata over WebSocket to connected clients. Each client can selectively forward those requests to a target HTTP service, apply header filters or inject headers, and report the forwarding result back to the server.
 
