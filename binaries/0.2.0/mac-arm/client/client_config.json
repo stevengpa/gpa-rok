@@ -1,0 +1,21 @@
+{
+    "ws_server": {
+        "port": 9999,
+        "host": "127.0.0.1",
+        "listen_tails": ["*"]
+    },
+    "target": "http://localhost:8080",
+    "forward_host": {
+      "host": "127.0.0.1",
+      "port": 8787
+    },
+    "headers": [{
+      "name": "authorization",
+      "value": "Bearer abc"
+    }],
+    "strip_headers": [
+        "connection", "proxy-connection", "keep-alive", "te", "trailer",
+        "transfer-encoding", "upgrade", "proxy-authenticate", "proxy-authorization",
+        "host", "content-length", "authorization"
+    ]
+}

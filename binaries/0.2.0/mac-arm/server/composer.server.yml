@@ -1,0 +1,27 @@
+version: "3.9"
+
+services:
+  gpa-rok-server:
+    image: rust:1.88
+    container_name: gpa-rok-server
+    working_dir: /work
+    volumes:
+      - ./:/work:rw
+
+      # Provide server configuration if your app expects it in CWD
+      - ./server_config.json:/work/server_config.json:ro
+    command: >
+      bash -lc "source /usr/local/cargo/env && cargo run --release --bin gpa-rok-server"
+    environment:
+      RUST_LOG: debug
+    restart: unless-stopped
+    # Adjust port mapping to whatever your server actually listens on
+    ports:
+      - "9999:9999"
+      - "8888:8888"
+    networks:
+      - gpa-rok-net
+
+networks:
+  gpa-rok-net:
+    driver: bridge
