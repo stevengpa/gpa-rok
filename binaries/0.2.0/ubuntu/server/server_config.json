@@ -1,0 +1,10 @@
+{
+    "ws_server": {
+        "port": 9999,
+        "host": "0.0.0.0"
+    },
+    "http_server": {
+        "port": 8888,
+        "host": "0.0.0.0"
+    }
+}
